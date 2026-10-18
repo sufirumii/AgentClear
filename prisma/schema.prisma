@@ -1,0 +1,254 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/* ------------------------------------------------------------------ */
+/* Users, sessions, workspaces                                         */
+/* ------------------------------------------------------------------ */
+
+model User {
+  id           String        @id @default(cuid())
+  email        String        @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  memberships  Membership[]
+  sessions     Session[]
+}
+
+model Session {
+  id         String   @id @default(cuid())
+  tokenHash  String   @unique
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  userAgent  String?
+}
+
+model Workspace {
+  id            String       @id @default(cuid())
+  name          String
+  passThreshold Int          @default(90)
+  retentionDays Int          @default(365)
+  sampleSeeded  Boolean      @default(false)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  memberships   Membership[]
+  agents        Agent[]
+  suites        TestSuite[]
+  runs          TestRun[]
+  apiTokens     ApiToken[]
+}
+
+model Membership {
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  role        String    @default("OWNER") // OWNER | ADMIN | MEMBER
+  createdAt   DateTime  @default(now())
+
+  @@id([userId, workspaceId])
+  @@index([workspaceId])
+}
+
+/* ------------------------------------------------------------------ */
+/* Agents                                                               */
+/* ------------------------------------------------------------------ */
+
+model Agent {
+  id                  String    @id @default(cuid())
+  workspaceId         String
+  workspace           Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name                String
+  description         String    @default("")
+  category            String    @default("CUSTOMER_SUPPORT")
+  type                String    @default("CUSTOM_HTTP") // DEMO_SANDBOX | CUSTOM_HTTP
+  endpointUrl         String?
+  method              String    @default("POST")
+  headersJson         String    @default("{}")
+  bodyTemplate        String    @default("")
+  responseField       String    @default("reply")
+  toolCallsField      String    @default("tool_calls")
+  authType            String    @default("NONE") // NONE | BEARER | HEADER | BASIC
+  authHeaderName      String?
+  secretCiphertext    String?
+  timeoutMs           Int       @default(15000)
+  expectedContentType String    @default("JSON")
+  status              String    @default("ACTIVE") // ACTIVE | DISABLED
+  connectionStatus    String    @default("UNKNOWN") // UNKNOWN | CONNECTED | FAILED
+  lastTestedAt        DateTime?
+  lastTestResultJson  String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  runs                TestRun[]
+
+  @@index([workspaceId])
+}
+
+/* ------------------------------------------------------------------ */
+/* Test suites & cases                                                  */
+/* ------------------------------------------------------------------ */
+
+model TestSuite {
+  id          String     @id @default(cuid())
+  workspaceId String
+  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  description String     @default("")
+  isStarter   Boolean    @default(false)
+  tagsCsv     String     @default("")
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  cases       TestCase[]
+  runs        TestRun[]
+
+  @@index([workspaceId])
+}
+
+model TestCase {
+  id               String     @id @default(cuid())
+  suiteId          String
+  suite            TestSuite  @relation(fields: [suiteId], references: [id], onDelete: Cascade)
+  displayId        String
+  orderIndex       Int
+  category         String // CORRECTNESS | TOOL_USAGE | SAFETY
+  severity         String // CRITICAL | HIGH | MEDIUM | LOW
+  title            String
+  description      String     @default("")
+  turnsJson        String // JSON [{ user: string }]
+  expectedBehavior String
+  evidenceNote     String     @default("")
+  rulesJson        String // JSON EvalRule[]
+  failureHint      String?
+  tagsCsv          String     @default("")
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  @@unique([suiteId, displayId])
+  @@index([suiteId])
+}
+
+/* ------------------------------------------------------------------ */
+/* Runs, results, tool-call events                                      */
+/* ------------------------------------------------------------------ */
+
+model TestRun {
+  id              String       @id @default(cuid())
+  workspaceId     String
+  workspace       Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agentId         String?
+  agent           Agent?       @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  agentNameSnapshot String     @default("")
+  agentTypeSnapshot String     @default("CUSTOM_HTTP")
+  suiteId         String?
+  suite           TestSuite?   @relation(fields: [suiteId], references: [id], onDelete: SetNull)
+  suiteNameSnapshot String     @default("")
+  status          String       @default("QUEUED") // QUEUED | RUNNING | COMPLETED | FAILED | CANCELLED
+  isSample        Boolean      @default(false)
+  totalCases      Int          @default(0)
+  progress        Int          @default(0)
+  passed          Int          @default(0)
+  failed          Int          @default(0)
+  inconclusive    Int          @default(0)
+  errored         Int          @default(0)
+  notExecuted     Int          @default(0)
+  score           Float?
+  categoriesJson  String       @default("{}")
+  failureMessage  String?
+  cancelRequested Boolean      @default(false)
+  createdByUserId String
+  createdByName   String       @default("")
+  startedAt       DateTime?
+  completedAt     DateTime?
+  durationMs      Int?
+  createdAt       DateTime     @default(now())
+  results         TestResult[]
+
+  @@index([workspaceId, createdAt])
+}
+
+model TestResult {
+  id                String         @id @default(cuid())
+  runId             String
+  run               TestRun        @relation(fields: [runId], references: [id], onDelete: Cascade)
+  caseId            String // TestCase.id at execution time
+  displayId         String
+  orderIndex        Int
+  category          String
+  severity          String
+  title             String
+  status            String // PASS | FAIL | INCONCLUSIVE | ERROR | NOT_EXECUTED
+  explanation       String         @default("")
+  recommendation    String?
+  observedReply     String?
+  expectedBehavior  String         @default("")
+  evidenceNote      String         @default("")
+  failureHint       String?
+  turnsEvidenceJson String         @default("[]")
+  ruleOutcomesJson  String         @default("[]")
+  durationMs        Int?
+  createdAt         DateTime       @default(now())
+  toolEvents        ToolCallEvent[]
+
+  @@index([runId])
+}
+
+model ToolCallEvent {
+  id            String     @id @default(cuid())
+  resultId      String
+  result        TestResult @relation(fields: [resultId], references: [id], onDelete: Cascade)
+  phase         String // REQUESTED | OBSERVED | CONFIRMED
+  name          String
+  argumentsJson String?
+  status        String // SUCCESS | FAILURE | UNKNOWN
+  resultJson    String?
+  timestamp     DateTime?
+  orderIndex    Int
+  turnIndex     Int?
+
+  @@index([resultId])
+}
+
+/* ------------------------------------------------------------------ */
+/* Audit, API tokens, contact                                           */
+/* ------------------------------------------------------------------ */
+
+model AuditEvent {
+  id          String   @id @default(cuid())
+  workspaceId String?
+  userId      String?
+  action      String
+  detailJson  String   @default("{}")
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId, createdAt])
+}
+
+model ApiToken {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  tokenHash   String    @unique
+  prefix      String
+  lastUsedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([workspaceId])
+}
+
+model ContactMessage {
+  id        String   @id @default(cuid())
+  email     String
+  message   String
+  createdAt DateTime @default(now())
+}
