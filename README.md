@@ -1,4 +1,4 @@
-<img width="307" height="307" alt="logo (1)" src="https://github.com/user-attachments/assets/c171e99a-7f8b-44ee-a168-93f39898fa2f" />
+<img width="1254" height="1254" alt="Periwinkle Rounded Checkmark Icon" src="https://github.com/user-attachments/assets/be186481-3c45-47df-8674-a28b9258d712" />
 
 # AgentClear
 AgentClear is an AI agent testing platform that helps businesses evaluate correctness, verify tool usage, and identify safety issues. Our automated testing and evidence-based reports help teams build more reliable AI agents before deploying them to real users.
